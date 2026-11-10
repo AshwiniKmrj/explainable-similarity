@@ -3,6 +3,19 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Notebooks (private: outputs contain model results)
+*.ipynb
+.ipynb_checkpoints/
+
+# Claude Code (settings, subagents, memory and local instructions are private to this machine)
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.mcp.json
 
 # Model files
 models/
@@ -23,6 +36,7 @@ models/
 
 # Editor and OS files
 .vscode/
+.idea/
 .DS_Store
 Thumbs.db
 

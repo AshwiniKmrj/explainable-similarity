@@ -1,4 +1,3 @@
-import hashlib
 from typing import Protocol
 
 import numpy as np
@@ -13,18 +12,7 @@ class Embedder(Protocol):
 
     def embed(self, texts: list[str]) -> npt.NDArray[np.float32]: ...
 
-
-class DummyEmbedder:
-    """Stand-in for the real model: same text always gives the same vector."""
-
-    dim: int = 8
-
-    def embed(self, texts: list[str]) -> npt.NDArray[np.float32]:
-        rows = []
-        for t in texts:
-            seed = int.from_bytes(hashlib.sha256(t.encode()).digest()[:4], "little")
-            rows.append(np.random.default_rng(seed).standard_normal(self.dim))
-        return np.asarray(rows, dtype=np.float32)
+    def truncated(self, texts: list[str]) -> list[bool]: ...
 
 
 class InterpretableEmbedder:
@@ -36,8 +24,16 @@ class InterpretableEmbedder:
         if dim is None:
             raise RuntimeError("model does not report an embedding dimension")
         self.dim: int = dim
-        self.model.max_seq_length = 512
+        # Memory and latency grow with the token count (measured at roughly 0.9 MB per token for a pair of texts
+        # on CPU), so inputs are capped well below the 8192 tokens the model supports. 1024 tokens is about
+        # 700 English words and keeps a request within a 2 GB container.
+        self.model.max_seq_length = 1024
 
     def embed(self, texts: list[str]) -> npt.NDArray[np.float32]:
         """Encode texts into an array of shape (len(texts), dim)."""
         return self.model.encode(texts)
+
+    def truncated(self, texts: list[str]) -> list[bool]:
+        """For each text, whether the model's token limit cuts part of it off (special tokens count)."""
+        ids = self.model.tokenizer(texts, add_special_tokens=True, truncation=False)["input_ids"]
+        return [len(i) > self.model.max_seq_length for i in ids]

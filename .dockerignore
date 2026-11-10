@@ -9,9 +9,20 @@ __pycache__
 .env
 .env.*
 .vscode
+.idea
+.claude
+**/.claude
+CLAUDE.md
+CLAUDE.local.md
+.mcp.json
+.mypy_cache
+.ruff_cache
+*.egg-info
+*.ipynb
+.ipynb_checkpoints
 tests/
 requirements-dev.txt
 README.md
 models/
-
+data/
 
