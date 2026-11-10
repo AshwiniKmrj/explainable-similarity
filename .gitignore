@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Model files
+models/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.onnx
+*.pkl
+*.npy
+*.npz
+*.index
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Editor and OS files
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local data and outputs
+data/

@@ -1,0 +1,17 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+**/__pycache__
+**/*.pyc
+.env
+.env.*
+.vscode
+tests/
+requirements-dev.txt
+README.md
+models/
+
+
