@@ -45,10 +45,32 @@ jobs:
       - name: Run tests
         run: pytest -v --tb=no -rN
 
+  # Builds the image and stores it in the Azure container registry, but only if the tests passed.
   docker:
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write # lets this job prove to Azure that it runs in this repository, so no password is stored
+    env:
+      ACR_NAME: ${{ secrets.ACR_NAME }}
     steps:
       - uses: actions/checkout@v4
-      - name: Build the image
-        run: docker build -t embedding-api .
+
+      - name: Sign in to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign in to the registry
+        run: az acr login --name "$ACR_NAME"
+
+      # Each image is tagged with the commit it was built from, so a running version can be traced to its code.
+      - name: Build and push the image
+        run: |
+          IMAGE="$ACR_NAME.azurecr.io/explainable-similarity"
+          docker build -t "$IMAGE:${GITHUB_SHA::7}" -t "$IMAGE:latest" .
+          docker push --all-tags "$IMAGE"
