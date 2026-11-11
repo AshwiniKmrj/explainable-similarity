@@ -89,14 +89,15 @@ Returns the score plus the topics behind it. It takes the same two texts and thr
 
 ### What comes back
 
-| Field | Meaning |
-|---|---|
-| `similarity` | Cosine similarity score |
-| `text_a_truncated`, `text_b_truncated` | `true` if a text was too long for the model and its end was ignored |
-| `shared_topics` | Only from `/similarity/explain`: the topics with highest contribution to cosine similarity in descending order |
-| `differing_topics` | Only from `/similarity/explain`: the topics on which the texts point in opposite directions, which lower the cosine similarity, in ascending order (most negative first). |
-| `contribution` | Given for each topic: how large its contribution to the cosine similarity is compared to all topics in the model, as a percentage. 0.45 means this topic accounts for 45% of what all topics contribute together. A higher percentage means the topic is more strongly present in both texts, contributing more to their similarity. |
-| `summary` | Given for each topic if `include_summary` is `true`: a description of what the topic covers |
+| Field | Returned by | Meaning |
+|---|---|---|
+| `similarity` | `/similarity`, `/similarity/explain` | Cosine similarity score |
+| `text_a_truncated`, `text_b_truncated` | `/similarity`, `/similarity/explain` | `true` if a text was too long for the model and its end was ignored |
+| `shared_topics` | `/similarity/explain` | The topics with highest contribution to cosine similarity in descending order |
+| `differing_topics` | `/similarity/explain` | The topics on which the texts point in opposite directions, in ascending order of contribution (most negative first) |
+| `contribution` | `/similarity/explain` | Given for each topic: how large its contribution to the cosine similarity is compared to all topics in the model, as a percentage. 0.45 means this topic accounts for 45% of what all topics contribute together. A higher percentage means the topic is more strongly present in both texts, contributing more to their similarity. |
+| `summary` | `/similarity/explain` | Given for each topic if `include_summary` is `true`: a description of what the topic covers |
+
 
 
 
