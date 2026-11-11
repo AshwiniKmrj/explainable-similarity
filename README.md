@@ -91,12 +91,14 @@ Returns the score plus the topics behind it. It takes the same two texts and thr
 
 | Field | Meaning |
 |---|---|
-| `similarity` | Cosine similarity, from -1 (opposite) to 1 (same meaning) |
+| `similarity` | Cosine similarity score |
 | `text_a_truncated`, `text_b_truncated` | `true` if a text was too long for the model and its end was ignored |
-| `shared_topics`, `differing_topics` | Only from `/similarity/explain`: the strongest topics, each with its `contribution` and, if requested, a `summary` |
+| `shared_topics` | Only from `/similarity/explain`: the topics with highest contribution to cosine similarity in descending order |
+| `differing_topics` | Only from `/similarity/explain`: the topics on which the texts point in opposite directions, which lower the cosine similarity, in ascending order (most negative first). |
+| `contribution` | Given for each topic: how large its contribution to the cosine similarity is compared to all topics in the model, as a percentage. 0.45 means this topic accounts for 45% of what all topics contribute together. A higher percentage means the topic is more strongly present in both texts, contributing more to their similarity. |
+| `summary` | Given for each topic if `include_summary` is `true`: a description of what the topic covers |
 
-A `contribution` is a topic's share of the combined effect of all topics, not an amount added to the score:
-0.25 means that topic accounts for a quarter of it.
+
 
 ## How it works
 
