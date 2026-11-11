@@ -7,7 +7,7 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 
-# Notebooks (private: outputs contain model results)
+# Notebooks
 *.ipynb
 .ipynb_checkpoints/
 
