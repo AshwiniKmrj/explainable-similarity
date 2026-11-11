@@ -74,3 +74,45 @@ jobs:
           IMAGE="$ACR_NAME.azurecr.io/explainable-similarity"
           docker build -t "$IMAGE:${GITHUB_SHA::7}" -t "$IMAGE:latest" .
           docker push --all-tags "$IMAGE"
+
+  # Points the running app at the image that was just pushed. Azure starts it as a new revision and moves traffic
+  # to it only once it is ready, so an image that cannot start leaves the previous version serving.
+  deploy:
+    needs: docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency: deploy # one deployment at a time; a second push waits for the first to finish
+    permissions:
+      id-token: write # same password-free sign-in to Azure as the docker job
+    env:
+      RESOURCE_GROUP: explainable-similarity-rg
+      APP_NAME: explainable-similarity
+      ACR_NAME: ${{ secrets.ACR_NAME }}
+    steps:
+      - name: Sign in to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy the new image
+        run: |
+          az containerapp update --resource-group "$RESOURCE_GROUP" --name "$APP_NAME" \
+            --image "$ACR_NAME.azurecr.io/explainable-similarity:${GITHUB_SHA::7}" --output none
+
+      # The update returns before the container has started. Waiting here makes a version that cannot start
+      # fail this job instead of going unnoticed.
+      - name: Wait for the new revision to become healthy
+        run: |
+          revision=$(az containerapp show --resource-group "$RESOURCE_GROUP" --name "$APP_NAME" \
+            --query properties.latestRevisionName --output tsv)
+          for attempt in $(seq 1 40); do
+            health=$(az containerapp revision show --resource-group "$RESOURCE_GROUP" --name "$APP_NAME" \
+              --revision "$revision" --query properties.healthState --output tsv)
+            echo "attempt $attempt: $revision is ${health:-starting}"
+            if [ "$health" = "Healthy" ]; then exit 0; fi
+            sleep 15
+          done
+          echo "::error::$revision did not become healthy within 10 minutes"
+          exit 1
