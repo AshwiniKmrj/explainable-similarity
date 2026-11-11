@@ -304,12 +304,15 @@ class ExplainRequest(SimilarityRequest):
 
 
 class TopicItem(BaseModel):
-    """One topic and how much of the topic-level signal it accounts for."""
+    """One topic and its share of the effect that all topics together have on the similarity."""
 
     topic: str
     contribution: float = Field(
-        description="Fraction of the topic-level signal from this topic: positive if the texts share it, negative if "
-        "they differ on it. The absolute values over all 300 topics sum to 1. Not a similarity score."
+        description="How much this topic contributes to the cosine similarity, compared with the other topics. "
+        "Positive means the texts share the topic, which raises the similarity; negative means they differ on it, "
+        "which lowers it. The value is a share, not an amount: 0.25 means this topic accounts for a quarter of the "
+        "combined effect of all topics, not that it adds 0.25 to the similarity. The absolute values over all "
+        "topics sum to 1."
     )
     summary: str | None = None
 
