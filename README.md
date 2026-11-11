@@ -103,11 +103,10 @@ Returns the score plus the topics behind it. It takes the same two texts and thr
 
 ## How it works
 
-The service uses neural text embeddings in which certain dimensions each correspond to one particular topic.
-For example, one dimension stands for football and another for banking.
+The service embeds both texts with a transformer-based sentence embedding model. The model is partly interpretable: some of its embedding dimensions each correspond to one topic, for example one dimension for football and another for banking.
 
-Cosine similarity is a sum of per-dimension products, so it can be decomposed to isolate each topic's
-contribution. A topic contributes positively when both texts are about it and negatively when they differ on it.
+Cosine similarity is the normalised sum of per-dimension products, so it can be decomposed to isolate each topic's
+contribution based on its dimension values. A topic or a dimension contributes positively when both texts are about it and negatively when they differ on it.
 
 The model is private and is not part of this repository.
 
