@@ -14,23 +14,30 @@ after a quiet period takes about half a minute.
 
 Two texts that are both about artificial intelligence, one in medicine and one in law.
 
-**Text A**
+**Request**
 
-> Hospitals are starting to use artificial intelligence to read X-rays and MRI scans. In recent trials the
-> software detected early signs of lung cancer that radiologists had missed, which could help doctors begin
-> treatment sooner.
+```http
+POST /similarity/explain
+X-API-Key: <your-key>
+Content-Type: application/json
+```
 
-**Text B**
+```json
+{
+  "text_a": "Hospitals are starting to use artificial intelligence to read X-rays and MRI scans. In recent trials the software detected early signs of lung cancer that radiologists had missed, which could help doctors begin treatment sooner.",
+  "text_b": "Lawmakers are debating how to regulate artificial intelligence. A proposed law would require companies to disclose how their algorithms make decisions and would let courts fine firms whose systems discriminate against citizens.",
+  "top_shared": 1,
+  "top_differing": 3
+}
+```
 
-> Lawmakers are debating how to regulate artificial intelligence. A proposed law would require companies to
-> disclose how their algorithms make decisions and would let courts fine firms whose systems discriminate
-> against citizens.
-
-**Response from `POST /similarity/explain`** (numbers shortened to four decimals, truncation flags left out):
+**Response** (numbers shortened to four decimals)
 
 ```json
 {
   "similarity": 0.4370,
+  "text_a_truncated": false,
+  "text_b_truncated": false,
   "shared_topics": [
     { "topic": "Computing and Software Technology", "contribution": 0.4533 }
   ],
