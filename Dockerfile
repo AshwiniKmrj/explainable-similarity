@@ -1,8 +1,8 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 WORKDIR /app
 # CPU-only torch: the default PyPI wheel bundles CUDA libraries (gigabytes) that are never used here.
-# Installed first so sentence-transformers finds torch already satisfied. 2.2.2 is the version the tests ran with.
-RUN pip install --no-cache-dir torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu
+# Installed first so sentence-transformers finds torch already satisfied. 2.15.0 is the version the tests ran with.
+RUN pip install --no-cache-dir torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py embedder.py explain.py ./

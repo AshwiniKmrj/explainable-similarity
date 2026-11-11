@@ -1,6 +1,6 @@
-fastapi==0.110.2
-uvicorn==0.29.0
-pydantic==2.11.3
-numpy==1.26.4
-transformers==4.52.4
+fastapi==0.162.0
+uvicorn==0.54.0
+pydantic==2.14.3
+numpy==2.5.4
+transformers==4.57.6
 sentence-transformers==4.1.0

@@ -1,0 +1,54 @@
+name: CI
+
+# Runs on pushes only. Pull requests from forks cannot read the secrets, so the model download would fail there.
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12" # same as the Dockerfile
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      # Same order and versions as the Dockerfile, so the tests run against what the image ships.
+      - name: Install dependencies
+        run: |
+          pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-dev.txt
+
+      # The model is private
+      # The share must hold the contents of models/ at its root.
+      - name: Download the model from private storage
+        env:
+          AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
+          AZURE_STORAGE_SAS_TOKEN: ${{ secrets.AZURE_STORAGE_SAS_TOKEN }}
+          AZURE_FILE_SHARE: ${{ secrets.AZURE_FILE_SHARE }}
+        run: |
+          mkdir -p models
+          az storage file download-batch --source "$AZURE_FILE_SHARE" --destination models --output none --no-progress
+
+      # This log is public. --tb=no and -rN report which tests failed without printing the compared values.
+      - name: Run tests
+        run: pytest -v --tb=no -rN
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t embedding-api .
