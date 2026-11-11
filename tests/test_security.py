@@ -59,6 +59,16 @@ def test_similarity_and_explain_endpoints_when_embedder_raises_return_generic_50
     assert r.json() == {"detail": app_module.SIMILARITY_FAILED_DETAIL}
 
 
+@pytest.mark.parametrize("endpoint", ["/similarity", "/similarity/explain"])
+def test_similarity_and_explain_endpoints_when_embedder_raises_do_not_pass_the_exception_to_the_server(
+    client: TestClient, use_embedder: Callable[[Any], None], endpoint: str
+) -> None:
+    # An exception that leaves the app is logged by uvicorn with its full message, which can hold the private text.
+    # `client` re-raises anything that leaves the app, so getting a response at all proves nothing did.
+    use_embedder(RaisingEmbedder())
+    assert client.post(endpoint, json={"text_a": SECRET, "text_b": "b"}).status_code == 500
+
+
 # --- resource abuse ---------------------------------------------------------
 
 

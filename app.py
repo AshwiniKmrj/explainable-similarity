@@ -244,14 +244,43 @@ class RateLimitMiddleware:
         await self.asgi_app(scope, receive, send)
 
 
-app.add_middleware(RateLimitMiddleware)  # added last, so it runs first: a limited request costs nothing further
+app.add_middleware(RateLimitMiddleware)  # added after the body limit, so it runs before it: a 429 costs nothing more
 
 
-@app.exception_handler(Exception)
-async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Return the same generic JSON error as handled failures; log the type only (messages may hold texts)."""
-    logger.error("unhandled %s on %s", type(exc).__name__, request.url.path)
-    return JSONResponse(status_code=500, content={"detail": SIMILARITY_FAILED_DETAIL})
+class UnexpectedErrorMiddleware:
+    """Answer the generic 500 for any exception the app did not handle, and log its type only.
+
+    Exception messages may hold the caller's texts or file paths, so none may leave the app. An
+    @app.exception_handler(Exception) cannot guarantee that: Starlette re-raises the exception after calling
+    the handler, and the server (uvicorn) then logs the full traceback with the message.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.asgi_app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.asgi_app(scope, receive, send)
+            return
+
+        response_started = False
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.asgi_app(scope, receive, tracking_send)
+        except Exception as exc:
+            logger.error("unhandled %s on %s", type(exc).__name__, scope["path"])
+            if not response_started:  # otherwise the status line is already out and cannot be changed
+                response = JSONResponse(status_code=500, content={"detail": SIMILARITY_FAILED_DETAIL})
+                await response(scope, receive, send)
+
+
+app.add_middleware(UnexpectedErrorMiddleware)  # added last, so it wraps the routes and the other middleware
 
 
 @app.exception_handler(RequestValidationError)

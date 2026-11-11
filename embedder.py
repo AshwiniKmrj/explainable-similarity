@@ -5,6 +5,11 @@ import numpy.typing as npt
 from sentence_transformers import SentenceTransformer
 
 
+# Commit of Alibaba-NLP/new-impl whose modeling.py is downloaded and executed when the model loads. Pinned so a
+# change to that repository cannot alter the code this service runs; review the diff before bumping it.
+REMOTE_CODE_REVISION: str = "40ced75c3017eb27626c9d4ea981bde21a2662f4"
+
+
 class Embedder(Protocol):
     """Anything that can turn texts into a float32 matrix of shape (len(texts), dim)."""
 
@@ -19,7 +24,12 @@ class InterpretableEmbedder:
     """Wraps the real SentenceTransformer model, always running on CPU."""
 
     def __init__(self, file_path: str, trust_remote_code: bool = False) -> None:
-        self.model = SentenceTransformer(file_path, trust_remote_code=trust_remote_code, device="cpu")
+        self.model = SentenceTransformer(
+            file_path,
+            trust_remote_code=trust_remote_code,
+            device="cpu",
+            model_kwargs={"code_revision": REMOTE_CODE_REVISION},
+        )
         dim = self.model.get_sentence_embedding_dimension()
         if dim is None:
             raise RuntimeError("model does not report an embedding dimension")
