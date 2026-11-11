@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import DEFAULT_MODEL_PATH, app
+from support import AUTH_HEADERS, TEST_API_KEY
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -20,19 +21,22 @@ def isolated_environment() -> Iterator[None]:
         mp.chdir(ROOT)
         mp.delenv("TOPICS_PATH", raising=False)
         mp.delenv("EXPOSE_SUMMARIES", raising=False)
+        mp.delenv("TRUST_FORWARDED_FOR", raising=False)
+        mp.setenv("API_KEY", TEST_API_KEY)
+        mp.setenv("RATE_LIMIT_PER_MINUTE", "0")  # off by default; the rate-limit tests switch it on themselves
         yield
 
 
 @pytest.fixture(scope="session")
 def client() -> Iterator[TestClient]:
-    """Client backed by the real model; session scope so the model loads once for the whole run.
+    """Client backed by the real model, sending the API key; session scope so the model loads once per run.
 
     A missing model or topic file fails with a clear message (it is never skipped).
     """
     model_path = Path(os.environ.get("MODEL_PATH", "").strip() or ROOT / DEFAULT_MODEL_PATH)
     if not model_path.exists():
         pytest.fail(f"model not found at {model_path}")
-    with TestClient(app) as c:
+    with TestClient(app, headers=AUTH_HEADERS) as c:
         yield c
 
 
@@ -74,4 +78,4 @@ def real_topics_path() -> Path:
 @pytest.fixture
 def quiet_client(client: TestClient) -> TestClient:
     """Client that returns the 500 response instead of re-raising server errors."""
-    return TestClient(app, raise_server_exceptions=False)
+    return TestClient(app, raise_server_exceptions=False, headers=AUTH_HEADERS)

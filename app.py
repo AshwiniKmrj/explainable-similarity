@@ -1,14 +1,17 @@
 import logging
 import math
 import os
+import secrets
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, NoReturn
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Security
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field, StrictBool, field_validator, model_validator
 from sentence_transformers.util import cos_sim
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -26,6 +29,8 @@ logger = logging.getLogger("embedding-api")
 
 PROBE_TEXT: str = "Startup probe sentence."
 SIMILARITY_FAILED_DETAIL: str = "Similarity could not be computed for these texts."
+INVALID_API_KEY_DETAIL: str = "Missing or invalid API key."
+MIN_API_KEY_CHARS: int = 16
 
 
 def probe_embedder(embedder: Embedder) -> None:
@@ -60,9 +65,37 @@ def _parse_bool_env(name: str, default: bool) -> bool:
     return value == "true"
 
 
+def _parse_count_env(name: str, default: int) -> int:
+    """Read an env var that must be a whole number of 0 or more; unset or empty gives `default`.
+
+    Raises:
+        ValueError: for any other value, so a typo stops startup instead of silently changing the limit.
+    """
+    raw = os.environ.get(name, "")
+    value = raw.strip()
+    if not value:
+        return default
+    if not value.isascii() or not value.isdigit():
+        raise ValueError(f"{name} must be a whole number of 0 or more, got {raw!r}")
+    return int(value)
+
+
+def _read_api_key_env() -> str:
+    """Read API_KEY, the secret callers must send in the X-API-Key header.
+
+    Raises:
+        ValueError: if it is unset or shorter than MIN_API_KEY_CHARS, so the service never starts unprotected.
+    """
+    key = os.environ.get("API_KEY", "").strip()
+    if len(key) < MIN_API_KEY_CHARS:
+        raise ValueError(f"API_KEY must be set to at least {MIN_API_KEY_CHARS} characters")
+    return key
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Load the model and probe it; a broken model stops the service from starting."""
+    api_key = _read_api_key_env()  # checked first: no point loading the model if the service may not start
     model_path = os.environ.get("MODEL_PATH", "").strip() or DEFAULT_MODEL_PATH  # read at startup, not import
     embedder = InterpretableEmbedder(model_path, trust_remote_code=True)
     if embedder.dim != EMBEDDING_DIM:
@@ -72,6 +105,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.topics = load_topics(os.environ.get("TOPICS_PATH", DEFAULT_TOPICS_PATH))
     # Topic summaries are available to callers that ask for them; set EXPOSE_SUMMARIES=false to withhold them.
     app.state.expose_summaries = _parse_bool_env("EXPOSE_SUMMARIES", default=True)
+    # POST requests allowed per client per minute; RATE_LIMIT_PER_MINUTE=0 switches the limit off.
+    app.state.rate_limit_per_minute = _parse_count_env("RATE_LIMIT_PER_MINUTE", DEFAULT_RATE_LIMIT_PER_MINUTE)
+    # Behind a reverse proxy every request arrives from the proxy's address. Set TRUST_FORWARDED_FOR=true there
+    # so clients are told apart by the address the proxy reports; leave it false when clients connect directly,
+    # because they could then fake the header to dodge the limit.
+    app.state.trust_forwarded_for = _parse_bool_env("TRUST_FORWARDED_FOR", default=False)
+    app.state.rate_limit_hits = {}
+    app.state.api_key = api_key
     yield
 
 
@@ -136,6 +177,74 @@ class BodySizeLimitMiddleware:
 
 
 app.add_middleware(BodySizeLimitMiddleware)
+
+DEFAULT_RATE_LIMIT_PER_MINUTE: int = 30
+RATE_WINDOW_SECONDS: float = 60.0
+MAX_TRACKED_CLIENTS: int = 10_000  # bounds the memory the counters can take
+TOO_MANY_REQUESTS_DETAIL: str = "Too many requests."
+
+
+def _client_key(scope: Scope, trust_forwarded_for: bool) -> str:
+    """Return the address that identifies the caller.
+
+    With `trust_forwarded_for`, this is the last entry of X-Forwarded-For: the one the proxy directly in front
+    of the app added. Earlier entries are whatever the caller sent and cannot be trusted.
+    """
+    if trust_forwarded_for:
+        forwarded = dict(scope["headers"]).get(b"x-forwarded-for", b"")
+        last = forwarded.decode("latin-1").rsplit(",", 1)[-1].strip()
+        if last.startswith("["):  # "[ipv6]:port"
+            last = last[1:].split("]")[0]
+        elif last.count(":") == 1:  # "ipv4:port", as Azure App Service sends it
+            last = last.split(":")[0]
+        if last:
+            return last
+    client = scope.get("client")
+    return client[0] if client else "unknown"
+
+
+class RateLimitMiddleware:
+    """Answer 429 once a client has sent its allowed number of POST requests in the current minute.
+
+    Only POST is counted (the endpoints that run the model), so health probes and the docs are never limited.
+    The counters live in this process's memory: with several workers or replicas each one counts separately.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.asgi_app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        state = scope["app"].state if scope["type"] == "http" and scope["method"] == "POST" else None
+        limit: int = getattr(state, "rate_limit_per_minute", 0)  # 0 until startup has finished
+        if state is None or limit <= 0:
+            await self.asgi_app(scope, receive, send)
+            return
+
+        hits: dict[str, tuple[float, int]] = state.rate_limit_hits
+        now = time.monotonic()
+        client = _client_key(scope, state.trust_forwarded_for)
+        window_start, count = hits.get(client, (now, 0))
+        if now - window_start >= RATE_WINDOW_SECONDS:
+            window_start, count = now, 0
+
+        if client not in hits and len(hits) >= MAX_TRACKED_CLIENTS:
+            for key in [k for k, (start, _) in hits.items() if now - start >= RATE_WINDOW_SECONDS]:
+                del hits[key]
+        table_full = client not in hits and len(hits) >= MAX_TRACKED_CLIENTS
+
+        if count >= limit or table_full:
+            retry_after = max(1, math.ceil(window_start + RATE_WINDOW_SECONDS - now))
+            response = JSONResponse(
+                status_code=429, content={"detail": TOO_MANY_REQUESTS_DETAIL}, headers={"Retry-After": str(retry_after)}
+            )
+            await response(scope, receive, send)
+            return
+
+        hits[client] = (window_start, count + 1)
+        await self.asgi_app(scope, receive, send)
+
+
+app.add_middleware(RateLimitMiddleware)  # added last, so it runs first: a limited request costs nothing further
 
 
 @app.exception_handler(Exception)
@@ -215,6 +324,21 @@ class ExplainResponse(BaseModel):
     differing_topics: list[TopicItem]
 
 
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def require_api_key(request: Request, key: str | None = Security(api_key_header)) -> None:
+    """Let the request through only if it carries the server's API key.
+
+    Raises:
+        HTTPException: 401 if the X-API-Key header is missing or wrong.
+    """
+    expected: str = request.app.state.api_key
+    # compare_digest takes the same time wherever the keys differ, so the key cannot be guessed byte by byte.
+    if key is None or not secrets.compare_digest(key.encode("utf-8"), expected.encode("utf-8")):
+        raise HTTPException(status_code=401, detail=INVALID_API_KEY_DETAIL)
+
+
 @app.get("/", include_in_schema=False)
 def root() -> RedirectResponse:
     """Send visitors of the bare address to the interactive API docs."""
@@ -229,7 +353,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/similarity", response_model=SimilarityResponse)
+@app.post("/similarity", response_model=SimilarityResponse, dependencies=[Depends(require_api_key)])
 def similarity(req: SimilarityRequest) -> dict[str, Any]:
     """Return the cosine similarity of the two texts and whether either was cut off by the model's token limit.
 
@@ -241,7 +365,12 @@ def similarity(req: SimilarityRequest) -> dict[str, Any]:
     return {"similarity": score, "text_a_truncated": a_cut, "text_b_truncated": b_cut}
 
 
-@app.post("/similarity/explain", response_model=ExplainResponse, response_model_exclude_none=True)
+@app.post(
+    "/similarity/explain",
+    response_model=ExplainResponse,
+    response_model_exclude_none=True,
+    dependencies=[Depends(require_api_key)],
+)
 def explain(req: ExplainRequest) -> dict[str, Any]:
     """Return the cosine similarity and the topics that are shared or differ between the texts.
 

@@ -13,6 +13,9 @@ from explain import N_TOPICS
 
 import app as app_module
 
+TEST_API_KEY = "test-key-0123456789abcdef"
+AUTH_HEADERS = {"X-API-Key": TEST_API_KEY}
+
 
 class StubEmbedder:
     """Embedder whose output is fully controlled by the test."""
